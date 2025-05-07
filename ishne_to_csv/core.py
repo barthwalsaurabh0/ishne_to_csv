@@ -126,23 +126,3 @@ def read_ishne(file_path, show_progress=True, verbose=True, chunk_size=1000, wri
 
 def ishne_to_csv(input_file, output_file=None, show_progress=True, verbose=True, chunk_size=1000, write_chunk_size=10000):
     read_ishne(input_file, show_progress, verbose, chunk_size, write_chunk_size)
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Convert ISHNE file to CSV with timestamps.")
-    parser.add_argument("input_file", help="Path to the input ISHNE file.")
-    parser.add_argument("--output_file", help="Path to the output CSV file (optional).")
-    parser.add_argument("--no_progress", action="store_false", default=True, help="Disable progress bar.")
-    parser.add_argument("--verbose", action="store_true", default=True, help="Enable verbose output (info about the ISHNE file).")
-    parser.add_argument("--chunk_size", type=int, default=1000, help="Number of samples per read chunk (default 1000).")
-    parser.add_argument("--write_chunk_size", type=int, default=10000, help="Number of samples to accumulate before writing to CSV (default 10000).")
-
-    args = parser.parse_args()
-
-    # Use input file name to determine output file name if not provided
-    output_file = args.output_file or f"{os.path.splitext(args.input_file)[0]}.csv"
-
-    ishne_to_csv(args.input_file, output_file, args.no_progress, args.verbose, args.chunk_size, args.write_chunk_size)
-    
