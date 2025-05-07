@@ -1,15 +1,17 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="ishne-to-csv",
-    version="0.1.0",
+    name="ishne_to_csv",
+    version="1.0.2",
     description="Convert ISHNE ECG Holter files to timestamped CSV format",
+    long_description=open('README.md').read(),
+    long_description_content_type='text/markdown',
     author="Saurabh Barthwal",
     packages=find_packages(),
     install_requires=["pandas", "tqdm"],
     entry_points={
         'console_scripts': [
-            'ishne-to-csv = ishne_to_csv.cli:main',
+            'ishne_to_csv = ishne_to_csv.cli:main',
         ],
     },
     classifiers=[
