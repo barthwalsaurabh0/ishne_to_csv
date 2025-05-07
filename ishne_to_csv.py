@@ -2,11 +2,9 @@ import struct
 import pandas as pd
 import datetime
 from tqdm import tqdm
-import argparse
 import os
-import sys
 
-def read_ishne(file_path, show_progress=True, verbose=True):
+def read_ishne(file_path, show_progress=True, verbose=True, chunk_size=1000, write_chunk_size=10000):
     with open(file_path, 'rb') as f:
         magic = f.read(8).decode('ascii')
         if magic != 'ISHNE1.0':
@@ -42,6 +40,9 @@ def read_ishne(file_path, show_progress=True, verbose=True):
         if sampling_rate == 0:
             raise ValueError("Invalid sampling rate read from file")
 
+        # Calculate hours of recording
+        hours_of_recording = total_samples / sampling_rate / 3600
+
         if verbose:
             print("\nISHNE File Info:")
             print(f"  Name        : {first_name} {last_name}")
@@ -50,59 +51,98 @@ def read_ishne(file_path, show_progress=True, verbose=True):
             print(f"  Record Date : {record_date[0]:02d}-{record_date[1]:02d}-{record_date[2]}")
             print(f"  Start Time  : {start_time[0]:02d}:{start_time[1]:02d}:{start_time[2]:02d}")
             print(f"  Leads       : {num_leads}")
-            print(f"  Samples     : {total_samples}")
+            print(f"  Samples     : {total_samples} ({hours_of_recording:.2f} hours)")
             print(f"  Sampling Hz : {sampling_rate}")
             print()
 
         f.seek(offset_data)
+
         data = []
-        iterator = tqdm(range(total_samples), disable=not show_progress, desc="Reading ECG Samples")
+        iterator = tqdm(range(0, total_samples, chunk_size), disable=not show_progress, desc="Reading ECG Samples")
 
-        for _ in iterator:
-            data.append([struct.unpack('<h', f.read(2))[0] for _ in range(num_leads)])
+        # Prepare for CSV writing
+        output_file = f"{os.path.splitext(file_path)[0]}.csv"  # Default output file is input file name with .csv extension
+        header_written = False  # Check if header is written
+        
+        for i in iterator:
+            # Calculate the number of remaining samples and adjust the chunk size for the last read
+            remaining_samples = total_samples - i
+            current_chunk_size = min(remaining_samples, chunk_size)
 
-        df = pd.DataFrame(data, columns=[f'Lead_{i}' for i in range(num_leads)])
+            # Read the chunk (account for all leads and samples)
+            raw_data = f.read(current_chunk_size * num_leads * 2)  # 2 bytes per sample
 
-        start_datetime = datetime.datetime(
-            year=record_date[2], month=record_date[1], day=record_date[0],
-            hour=start_time[0], minute=start_time[1], second=start_time[2]
-        )
-        base_epoch_ns = int(start_datetime.timestamp() * 1e9)
-        interval_ns = int(1e9 / sampling_rate)
-        df.insert(0, 'time', [base_epoch_ns + i * interval_ns for i in range(total_samples)])
+            # If raw_data is shorter than expected, we have a problem
+            if len(raw_data) != current_chunk_size * num_leads * 2:
+                raise ValueError(f"Expected {current_chunk_size * num_leads * 2} bytes, but only {len(raw_data)} bytes were read.")
 
-        return df
+            # Unpack the raw data into chunks
+            chunk = struct.unpack('<' + 'h' * (current_chunk_size * num_leads), raw_data)
+
+            # Reshape the flat data to a list of rows, each row with data for all leads
+            for j in range(current_chunk_size):
+                row = chunk[j * num_leads: (j + 1) * num_leads]
+                data.append(row)
+
+            # Once we've processed enough chunks, write them to a CSV file in chunks
+            if len(data) >= write_chunk_size:
+                df = pd.DataFrame(data, columns=[f'Lead_{i+1}' for i in range(num_leads)])
+
+                start_datetime = datetime.datetime(
+                    year=record_date[2], month=record_date[1], day=record_date[0],
+                    hour=start_time[0], minute=start_time[1], second=start_time[2]
+                )
+                base_epoch_ns = int(start_datetime.timestamp() * 1e9)
+                interval_ns = int(1e9 / sampling_rate)
+                df.insert(0, 'time', [base_epoch_ns + i * interval_ns for i in range(len(data))])
+
+                if not header_written:
+                    df.to_csv(output_file, index=False)
+                    header_written = True  # Only write header once
+                else:
+                    df.to_csv(output_file, index=False, mode='a', header=False)
+
+                data = []  # Reset data for next chunk
+
+        # Final chunk write
+        if data:
+            df = pd.DataFrame(data, columns=[f'Lead_{i+1}' for i in range(num_leads)])
+
+            start_datetime = datetime.datetime(
+                year=record_date[2], month=record_date[1], day=record_date[0],
+                hour=start_time[0], minute=start_time[1], second=start_time[2]
+            )
+            base_epoch_ns = int(start_datetime.timestamp() * 1e9)
+            interval_ns = int(1e9 / sampling_rate)
+            df.insert(0, 'time', [base_epoch_ns + i * interval_ns for i in range(len(data))])
+
+            if not header_written:
+                df.to_csv(output_file, index=False)
+            else:
+                df.to_csv(output_file, index=False, mode='a', header=False)
+
+    print(f"CSV file written to {output_file}")
 
 
-def ishne_to_csv(input_file, output_file=None, show_progress=True, verbose=True):
-    if not output_file:
-        base, _ = os.path.splitext(input_file)
-        output_file = base + '.csv'
+def ishne_to_csv(input_file, output_file=None, show_progress=True, verbose=True, chunk_size=1000, write_chunk_size=10000):
+    read_ishne(input_file, show_progress, verbose, chunk_size, write_chunk_size)
 
-    df = read_ishne(input_file, show_progress=show_progress, verbose=verbose)
-    df.to_csv(output_file, index=False)
-    if verbose:
-        print(f"CSV file written to: {output_file}")
 
-# CLI interface
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Convert ISHNE ECG file to CSV with timestamp in UNIX epoch nanoseconds."
-    )
-    parser.add_argument("input", help="Input ISHNE file path (.ISHNE)")
-    parser.add_argument("-o", "--output", help="Output CSV file path (optional)")
-    parser.add_argument("--no-progress", action="store_true", help="Disable progress bar")
-    parser.add_argument("--quiet", action="store_true", help="Suppress console output")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Convert ISHNE file to CSV with timestamps.")
+    parser.add_argument("input_file", help="Path to the input ISHNE file.")
+    parser.add_argument("--output_file", help="Path to the output CSV file (optional).")
+    parser.add_argument("--no_progress", action="store_false", default=True, help="Disable progress bar.")
+    parser.add_argument("--verbose", action="store_true", default=True, help="Enable verbose output (info about the ISHNE file).")
+    parser.add_argument("--chunk_size", type=int, default=1000, help="Number of samples per read chunk (default 1000).")
+    parser.add_argument("--write_chunk_size", type=int, default=10000, help="Number of samples to accumulate before writing to CSV (default 10000).")
 
     args = parser.parse_args()
 
-    try:
-        ishne_to_csv(
-            input_file=args.input,
-            output_file=args.output,
-            show_progress=not args.no_progress,
-            verbose=not args.quiet
-        )
-    except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    # Use input file name to determine output file name if not provided
+    output_file = args.output_file or f"{os.path.splitext(args.input_file)[0]}.csv"
+
+    ishne_to_csv(args.input_file, output_file, args.no_progress, args.verbose, args.chunk_size, args.write_chunk_size)
+    
