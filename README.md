@@ -1,6 +1,6 @@
 # ISHNE to CSV Converter
 
-This Python package provides a utility to convert ISHNE Holter ECG files (`.ISHNE`) into CSV format with timestamped entries in Unix epoch nanoseconds.
+A Python package and CLI to convert ISHNE Holter ECG files (.ISHNE) to CSV format with timestamped entries.
 
 ## ISHNE Format
 
@@ -85,4 +85,4 @@ python -m ishne_to_csv <input_file.ISHNE> [--output_file OUTPUT.csv] [--no_progr
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for full license text.
+MIT License
